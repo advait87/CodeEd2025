@@ -4,7 +4,7 @@
 Build a personalized micro-learning engine that measurably improves learning outcomes with less learner fatigue.
 ## Solution
 
-We have built a  personalized Python learning platform that uses Gemini 2.5 FLASH and Gemini 2.5 PRO to adaptively assess learner competence, generate a dynamic learning path, and deliver short, interactive micro-learning exercises with instant feedback.
+We have built a  personalized Python learning platform that uses AI to adaptively assess learner competence, generate a dynamic learning path, and deliver short, interactive micro-learning exercises with instant feedback.
 
 ## Target Users
 
