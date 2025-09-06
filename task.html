@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Python IDE Task</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            background: '#000000',
+            'bento-base': '#111111',
+            'bento-contrast': '#222222',
+            'neon-cyan': '#00e0e0',
+            'neon-user': '#38bdf8',
+            'neon-purple': '#a855f7',
+            'neon-blue': '#00a0ff',
+            'neon-green': '#94a3b8',
+          },
+        },
+      },
+    };
+  </script>
+
+  <style type="text/tailwindcss">
+    @layer base {
+      body { @apply bg-background text-slate-200 font-sans; overflow: hidden; }
+    }
+    .bento-box { @apply bg-bento-base border border-bento-contrast rounded-xl p-4 sm:p-6 flex flex-col h-full; }
+    .panel-container { display: flex; height: 100%; width: 100%; }
+    .panel-container.vertical { flex-direction: column; }
+    .panel { overflow: hidden; padding: 0.5rem; }
+    .neon-text {
+      @apply bg-gradient-to-r from-neon-cyan via-neon-purple to-neon-blue text-transparent bg-clip-text;
+      background-size: 200%;
+      animation: gradient-x 5s ease infinite;
+    }
+    .popup-overlay {
+      @apply fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50;
+    }
+    .popup-content {
+      @apply bg-bento-base border-bento-contrast rounded-xl p-6 text-center shadow-2xl;
+    }
+    .resize-handle {
+      background-color: #1a1a24; flex-shrink: 0; z-index: 10; transition: background-color 0.2s ease;
+    }
+    .resize-handle.horizontal { cursor: ew-resize; width: 8px; }
+    .resize-handle.vertical { cursor: ns-resize; height: 8px; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #111111; }
+    ::-webkit-scrollbar-thumb { background-color: #222222; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background-color: #a855f7; }
+    * { scrollbar-width: thin; scrollbar-color: #a855f7 #111111; }
+  </style>
+</head>
+
+<body class="h-screen w-screen flex flex-col">
+  <div id="ide-container" class="h-full w-full flex flex-col">
+    <header class="flex justify-between items-center p-3 border-b border-bento-contrast bg-background flex-shrink-0">
+      <h1 class="text-xl font-bold neon-text">Python Code Editor</h1>
+    </header>
+
+    <main class="flex-grow p-4 relative">
+      <div id="main-container" class="panel-container horizontal h-full">
+        <!-- Left Panel -->
+        <div id="left-panel" class="panel" style="flex: 0 0 35%;">
+          <div class="panel-container vertical h-full">
+            
+            <!-- Task -->
+            <div id="task-panel-wrapper" class="panel" style="flex: 0 0 50%;">
+              <div class="bento-box overflow-y-auto">
+                <h2 class="text-xl font-bold text-neon-cyan mb-3">Your Task</h2>
+                <div id="task-content" class="text-slate-300 space-y-4 prose prose-invert max-w-none">
+                  <p class="text-slate-400 animate-pulse">Loading task...</p>
+                </div>
+              </div>
+            </div>
+            <div id="handle-left-vertical" class="resize-handle vertical"></div>
+
+            <!-- AI Feedback + Chatbot -->
+            <div id="ai-feedback-panel-wrapper" class="panel" style="flex: 1 1 0%;">
+              <div class="bento-box flex flex-col">
+                <h2 class="text-xl font-bold text-neon-purple mb-3">Astro AI</h2>
+                <div id="ai-feedback-text" class="text-slate-400 prose prose-invert max-w-none mb-4">
+                  Start typing to get feedback...
+                </div>
+
+                <h2 class="text-xl font-bold text-neon-cyan mb-3">AstroBot</h2>
+                <div id="chat-messages" class="flex-grow overflow-y-auto space-y-2 mb-2 p-2 bg-bento-contrast rounded-lg flex flex-col"></div>
+                <div class="flex gap-2">
+                  <input id="chat-input" type="text" placeholder="Ask a question..."
+                    class="flex-grow border border-bento-contrast rounded-lg px-3 py-2 bg-bento-base text-slate-200" />
+                  <button id="chat-send-btn"
+                    class="bg-neon-cyan text-black font-bold px-4 py-2 rounded-lg">Send</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Middle Handle -->
+        <div id="handle-main-horizontal" class="resize-handle horizontal"></div>
+
+        <!-- Right Panel -->
+        <div id="right-panel" class="panel" style="flex: 1 1 0%;">
+          <iframe id="onecompiler-iframe"
+            src="https://onecompiler.com/embed/python?theme=dark&hideLanguageSelection=true&hideNew=true&codeChangeEvent=true&hideTitle=true&hideNew=true&"
+            class="h-full w-full rounded-xl border-0"></iframe>
+        </div>
+      </div>
+
+      <!-- Floating Submit Button -->
+      <button id="submit-code-btn"
+        class="absolute bottom-9 right-14 bg-neon-cyan text-black font-bold py-3 px-6 rounded-lg shadow-lg shadow-neon-cyan/20 hover:scale-105 transition-transform disabled:opacity-50 disabled:cursor-not-allowed">
+        Submit Code
+      </button>
+    </main>
+  </div>
+
+  <div id="popup-root"></div>
+
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const GEMINI_API_KEY = "AIzaSyD5bnJfrrdFZ3jywcRehPVKM9iauRxU_qU"; // 🔑 replace with your Gemini API key
+
+      let liveCode = "";
+      let currentChallengeQuestion = "";
+      let debounceTimer;
+
+      const dom = {
+        taskContent: document.getElementById('task-content'),
+        aiFeedback: document.getElementById('ai-feedback-text'),
+        submitCodeBtn: document.getElementById('submit-code-btn'),
+        popupRoot: document.getElementById('popup-root'),
+        ideIframe: document.getElementById('onecompiler-iframe')
+      };
+
+      // --- Real-time AI Suggestions ---
+      async function generateSuggestions(code) {
+        if (!code.trim()) {
+          dom.aiFeedback.textContent = "Start typing to get feedback...";
+          return;
+        }
+        dom.aiFeedback.innerHTML = '<p class="text-slate-400 animate-pulse">Analyzing...</p>';
+        try {
+          const response = await fetch(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + GEMINI_API_KEY,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{
+                  parts: [{
+                    text: `You are a strict Python tutor.
+Analyze this code and only point out minimal syntax or logic errors.
+Return clean HTML without code fences or extra formatting.
+Use only <ul> and <li> with <b>Error:</b> and <b>Fix:</b>.
+
+Code:\n\n${code}`
+                  }]
+                }]
+              })
+            }
+          );
+          const result = await response.json();
+          const suggestionText = result.candidates?.[0]?.content?.parts?.[0]?.text || "⚠️ No suggestions found.";
+          dom.aiFeedback.innerHTML = suggestionText;
+        } catch (err) {
+          dom.aiFeedback.textContent = "⚠️ Error fetching suggestions.";
+        }
+      }
+
+      // --- API Client for Submit ---
+      const apiClient = {
+        baseUrl: "https://d3b82cb2f026.ngrok-free.app/api",
+        async createCodingChallenge() {
+          const res = await fetch(this.baseUrl + "/createCodingChallenge", { method: "POST" });
+          return await res.text();
+        },
+        async submitCodingChallenge(code, question) {
+          const res = await fetch(this.baseUrl + "/submitCodingChallenge", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code, question })
+          });
+          return await res.json();
+        }
+      };
+
+      // --- Popup ---
+      function showFeedbackPopup(feedbackData) {
+        const isCorrect = feedbackData.correct;
+        const borderColor = isCorrect ? "border-green-500" : "border-red-500";
+        const textColor = isCorrect ? "text-green-300" : "text-red-300";
+        const message = isCorrect ? "Correct Answer!" : "Try Again!";
+        dom.popupRoot.innerHTML = `
+          <div class="popup-overlay">
+            <div class="popup-content max-w-xs w-full border-2 ${borderColor}">
+              <p class="text-2xl font-bold ${textColor}">${message}</p>
+              ${isCorrect ? '<button id="next-btn" class="mt-6 w-full px-6 py-2 bg-neon-purple/80 text-white font-bold rounded-lg">Next</button>' : ''}
+            </div>
+          </div>`;
+        if (isCorrect) {
+          document.getElementById("next-btn").addEventListener("click", () => {
+            if (feedbackData.next === 'module') {
+              window.location.href = './module.html';
+            } else if (feedbackData.next === 'question') {
+              window.location.href = './task.html';
+            }
+          });
+        } else {
+          setTimeout(() => { dom.popupRoot.innerHTML = ""; }, 2000);
+        }
+      }
+
+      // --- Fetch Coding Challenge ---
+      async function fetchCodingChallenge() {
+        dom.popupRoot.innerHTML = "";
+        dom.taskContent.innerHTML = '<p class="text-slate-400 animate-pulse">Loading task...</p>';
+        dom.aiFeedback.textContent = "Start typing to get feedback...";
+        dom.submitCodeBtn.disabled = false;
+        try {
+          const resultText = await apiClient.createCodingChallenge();
+          dom.taskContent.innerHTML = resultText;
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(resultText, "text/html");
+          currentChallengeQuestion = doc.querySelector(".question")?.textContent || "";
+        } catch (err) {
+          dom.taskContent.innerHTML = '<p class="text-red-500">Failed to load task.</p>';
+        }
+      }
+
+      // --- Submit Code Handler ---
+      async function handleSubmitCode() {
+        dom.aiFeedback.innerHTML = '<p class="text-slate-400 animate-pulse">Analyzing your code...</p>';
+        dom.submitCodeBtn.disabled = true;
+        try {
+          const feedbackData = await apiClient.submitCodingChallenge(liveCode, currentChallengeQuestion);
+          dom.aiFeedback.innerHTML = `<strong>Feedback:</strong> ${feedbackData.feedback}<br/><br/><strong>Explanation:</strong> ${feedbackData.explanation}`;
+          showFeedbackPopup(feedbackData);
+        } catch {
+          dom.aiFeedback.textContent = "Error getting feedback from server.";
+        } finally {
+          if (dom.popupRoot.innerHTML.includes("Try Again")) {
+            dom.submitCodeBtn.disabled = false;
+          }
+        }
+      }
+
+      // --- Code Update Listener ---
+      window.addEventListener("message", (event) => {
+        if (event.data.action === "codeUpdate") {
+          liveCode = event.data.files[0].content;
+          clearTimeout(debounceTimer);
+          debounceTimer = setTimeout(() => generateSuggestions(liveCode), 600);
+        }
+      });
+
+      // --- Resizing Handles ---
+      function makeResizable(handle, prev, next, isVertical) {
+        handle.addEventListener("mousedown", (e) => {
+          e.preventDefault();
+          document.addEventListener("mousemove", drag);
+          document.addEventListener("mouseup", () => {
+            document.removeEventListener("mousemove", drag);
+          });
+        });
+        function drag(e) {
+          const rect = handle.parentElement.getBoundingClientRect();
+          const size = isVertical
+            ? ((e.clientY - rect.top) / rect.height) * 100
+            : ((e.clientX - rect.left) / rect.width) * 100;
+          prev.style.flex = `0 0 ${size}%`;
+        }
+      }
+      makeResizable(document.getElementById("handle-main-horizontal"), document.getElementById("left-panel"), document.getElementById("right-panel"), false);
+      makeResizable(document.getElementById("handle-left-vertical"), document.getElementById("task-panel-wrapper"), document.getElementById("ai-feedback-panel-wrapper"), true);
+
+      // --- Chatbot ---
+      const chatDom = {
+        messages: document.getElementById("chat-messages"),
+        input: document.getElementById("chat-input"),
+        sendBtn: document.getElementById("chat-send-btn"),
+      };
+
+      function addChatMessage(role, text) {
+        const div = document.createElement("div");
+        div.className =
+          role === "user"
+            ? "ml-auto bg-gradient-to-r from-neon-cyan via-neon-blue to-neon-purple text-black px-3 py-2 rounded-2xl rounded-br-none max-w-xs shadow-md"
+            : "mr-auto bg-gradient-to-r from-neon-purple via-neon-blue to-neon-cyan text-black px-3 py-2 rounded-2xl rounded-bl-none max-w-xs shadow-md";
+        div.textContent = text;
+        chatDom.messages.appendChild(div);
+        chatDom.messages.scrollTop = chatDom.messages.scrollHeight;
+      }
+
+      async function sendChatMessage() {
+        const question = chatDom.input.value.trim();
+        if (!question) return;
+        addChatMessage("user", question);
+        chatDom.input.value = "";
+
+        const thinkingDiv = document.createElement("div");
+        thinkingDiv.className = "text-gray-400 italic self-start";
+        thinkingDiv.textContent = "Bot is typing...";
+        chatDom.messages.appendChild(thinkingDiv);
+        chatDom.messages.scrollTop = chatDom.messages.scrollHeight;
+
+        try {
+          const res = await fetch(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + GEMINI_API_KEY,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: question }] }]
+              })
+            }
+          );
+          const data = await res.json();
+          thinkingDiv.remove();
+          const answer = data.candidates?.[0]?.content?.parts?.[0]?.text || "⚠️ No response.";
+          
+          // typing animation
+          let i = 0;
+          const botDiv = document.createElement("div");
+          botDiv.className =
+            "mr-auto bg-gradient-to-r from-neon-purple via-neon-blue to-neon-cyan text-black px-3 py-2 rounded-2xl rounded-bl-none max-w-xs shadow-md";
+          chatDom.messages.appendChild(botDiv);
+          const interval = setInterval(() => {
+            botDiv.textContent = answer.slice(0, i++);
+            chatDom.messages.scrollTop = chatDom.messages.scrollHeight;
+            if (i > answer.length) clearInterval(interval);
+          }, 20);
+        } catch (err) {
+          thinkingDiv.remove();
+          addChatMessage("bot", "⚠️ Error: " + err.message);
+        }
+      }
+
+      chatDom.sendBtn.addEventListener("click", sendChatMessage);
+      chatDom.input.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") sendChatMessage();
+      });
+
+      // --- Init ---
+      fetchCodingChallenge();
+      dom.submitCodeBtn.addEventListener("click", handleSubmitCode);
+    });
+  </script>
+</body>
+</html>

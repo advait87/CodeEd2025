@@ -1,18 +1,304 @@
 <!DOCTYPE html>
-<html>
-	<head>
-		<script src="./htmx/htmx.js"></script>
-		<link rel="stylesheet" href="./styles.css">
-		<title>Hackathon</title>
-	</head>
-	<div class="container" hx-get="http://127.0.0.1:5000/api/shortQuiz" hx-trigger="load">
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Learning Python</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        background: '#000000',
+                        'bento-base': '#111111',
+                        'bento-contrast': '#222222',
+                        'neon-cyan': '#00e0e0',
+                        'neon-purple': '#a855f7',
+                        'neon-blue': '#00a0ff',
+                        'neon-green': '#00ff00',
+                    },
+                    animation: {
+                        'gradient-x': 'gradient-x 5s ease infinite',
+                        'popup-in': 'popup-in 0.3s ease-out forwards',
+                    },
+                    keyframes: {
+                        'gradient-x': {
+                            '0%, 100%': { 'background-position': '0% 50%' },
+                            '50%': { 'background-position': '100% 50%' },
+                        },
+                        'popup-in': {
+                            '0%': { opacity: 0, transform: 'scale(0.95)' },
+                            '100%': { opacity: 1, transform: 'scale(1)' },
+                        },
+                    },
+                },
+            },
+        };
+    </script>
+
+    <style type="text/tailwindcss">
+        @layer base {
+            body {
+                @apply bg-background text-slate-200 font-sans;
+                overflow: hidden;
+            }
+        }
+        .bento-box {
+            @apply bg-bento-base border border-bento-contrast rounded-xl p-4 sm:p-6 flex flex-col h-full;
+        }
+        .quiz-option-btn {
+            @apply w-full text-left p-4 rounded-lg border-2 transition-all duration-300;
+            @apply border-bento-contrast bg-bento-base hover:border-neon-cyan;
+        }
+        .quiz-option-btn.selected { @apply border-neon-cyan bg-bento-contrast; }
+        
+        .popup-overlay {
+            @apply fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50;
+        }
+        .popup-content {
+            @apply bg-bento-base border border-bento-contrast rounded-xl p-6 text-center shadow-2xl;
+            animation: popup-in 0.3s ease-out forwards;
+        }
+
+        .neon-text {
+             @apply bg-gradient-to-r from-neon-cyan via-neon-purple to-neon-blue text-transparent bg-clip-text;
+             background-size: 200%;
+             animation: gradient-x 5s ease infinite;
+        }
+        .typing-cursor::after {
+            content: '█';
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink { 50% { opacity: 0; } }
+    </style>
+</head>
+
+<body class="h-screen w-screen flex flex-col">
+
+    <div id="status-container" class="h-full w-full flex flex-col items-center justify-center p-8">
+        <div id="status-content" class="w-full max-w-2xl text-center">
+        </div>
+    </div>
+    
+    <div id="popup-root"></div>
 
 
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            let selectedOptionData = null;
+            const statusContent = document.getElementById('status-content');
+            const popupRoot = document.getElementById('popup-root');
 
+            const apiClient = {
+                baseUrl: 'https://d3b82cb2f026.ngrok-free.app/api',
+                apiKey: 'YOUR_GEMINI_API_KEY_HERE', 
 
-	</div>
+                async fetchWithTimeout(url, options = {}, timeout = 30000) {
+                    const controller = new AbortController();
+                    const id = setTimeout(() => controller.abort(), timeout);
+                    
+                    options.headers = { ...options.headers, 'Content-Type': 'application/json' };
 
+                    try {
+                        const response = await fetch(url, { ...options, signal: controller.signal });
+                        clearTimeout(id);
+                        if (!response.ok) { throw new Error(`API Error (${response.status}): ${await response.text()}`); }
+                        return response;
+                    } catch (error) {
+                        clearTimeout(id);
+                        if (error.name === 'AbortError') { throw new Error('API request timed out.'); }
+                        throw error;
+                    }
+                },
+                async getQuestion(payload = {}) {
+                    const response = await this.fetchWithTimeout(`${this.baseUrl}/getQuestion`, {
+                        method: 'POST', body: JSON.stringify(payload)
+                    });
+                    const responseText = await response.text();
+                    try { return JSON.parse(responseText); } catch (e) { return responseText; }
+                },
+                async answerQuestion(data) {
+                    await this.fetchWithTimeout(`${this.baseUrl}/answerQuestion`, {
+                        method: 'POST', body: JSON.stringify(data)
+                    });
+                },
+                async createUserReport() {
+                    const response = await this.fetchWithTimeout(`${this.baseUrl}/createUserReport`, {
+                        method: 'POST', body: JSON.stringify({})
+                    });
+                    return await response.text();
+                },
+                async resetQuiz() {
+                    try { await this.fetchWithTimeout(`${this.baseUrl}/reset`, { method: 'POST' }); } catch (e) { console.error("Could not reset session:", e); }
+                }
+            };
 
+            const typeWriter = (element, text, speed = 30) => {
+                if (!element) return;
+                let i = 0;
+                element.innerHTML = "";
+                element.classList.add('typing-cursor');
+                const interval = setInterval(() => {
+                    if (i < text.length) {
+                        element.innerHTML += text.charAt(i);
+                        i++;
+                    } else {
+                        clearInterval(interval);
+                        element.classList.remove('typing-cursor');
+                    }
+                }, speed);
+            };
 
+            const renderLoading = (message) => {
+                statusContent.innerHTML = `<h1 id="loading-text" class="text-2xl font-bold neon-text mb-4"></h1>`;
+                typeWriter(document.getElementById('loading-text'), message);
+            };
+
+            const renderError = (message, details) => {
+                statusContent.innerHTML = `
+                    <div class="bento-box text-left">
+                        <h2 class="text-xl font-bold text-red-500 mb-4">Connection Error</h2>
+                        <p class="text-slate-300">${message}</p>
+                        <ul class="list-disc list-inside text-slate-400 mt-2 space-y-1">
+                            <li>Is your Python Flask server running?</li>
+                            <li>Is the ngrok URL correct?</li>
+                        </ul>
+                        <p class="text-xs text-slate-500 mt-6">Details: ${details}</p>
+                    </div>`;
+            };
+
+            const renderQuizScreen = () => {
+                statusContent.innerHTML = `
+                    <div class="w-full max-w-2xl">
+                        <h1 class="text-3xl font-bold neon-text mb-8 text-center">Python Knowledge Check</h1>
+                        <div class="bento-box">
+                            <h2 id="quiz-question" class="text-xl font-semibold mb-6 min-h-[56px]"></h2>
+                            <div id="quiz-options" class="space-y-4"></div>
+                            <button id="submit-quiz-btn" class="mt-8 px-8 py-3 bg-neon-purple/80 hover:bg-neon-purple text-white font-bold rounded-lg transition-all disabled:opacity-50" disabled>Submit</button>
+                        </div>
+                    </div>`;
+                document.getElementById('submit-quiz-btn').addEventListener('click', handleSubmitAnswer);
+            };
+
+            const renderWelcomeScreen = () => {
+                statusContent.innerHTML = `
+                    <div class="w-full max-w-2xl text-center">
+                        <h1 class="text-3xl font-bold neon-text mb-4">Welcome to the Python Tutor</h1>
+                        <p class="text-slate-400 mb-8">Click below to start a short quiz to personalize your learning path.</p>
+                        <button id="start-quiz-btn" class="px-8 py-3 bg-neon-purple/80 hover:bg-neon-purple text-white font-bold rounded-lg transition-all">Start Assessment</button>
+                    </div>`;
+                document.getElementById('start-quiz-btn').addEventListener('click', initializeQuiz);
+            };
+
+            const renderQuizQuestion = (htmlString) => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(htmlString, 'text/html');
+                const question = doc.querySelector('.question')?.textContent;
+                const options = Array.from(doc.querySelectorAll('.options')).map(o => o.textContent);
+                if (!question || options.length === 0) {
+                    renderError("Received an invalid question format."); return;
+                }
+                const quizQuestionEl = document.getElementById('quiz-question');
+                const quizOptionsEl = document.getElementById('quiz-options');
+                const submitBtn = document.getElementById('submit-quiz-btn');
+                if (!quizQuestionEl || !quizOptionsEl || !submitBtn) return;
+                quizQuestionEl.textContent = question;
+                quizOptionsEl.innerHTML = options.map(opt => `<button class="quiz-option-btn">${opt}</button>`).join('');
+                selectedOptionData = null;
+                submitBtn.disabled = true;
+                quizOptionsEl.querySelectorAll('.quiz-option-btn').forEach(btn => {
+                    btn.addEventListener('click', () => {
+                        quizOptionsEl.querySelectorAll('.quiz-option-btn').forEach(b => b.classList.remove('selected'));
+                        btn.classList.add('selected');
+                        selectedOptionData = { question, options, student_answer: btn.textContent };
+                        submitBtn.disabled = false;
+                    });
+                });
+                submitBtn.style.display = 'block';
+            };
+
+            const renderAssessment = (reportHtml) => {
+                statusContent.innerHTML = `
+                    <div class="w-full max-w-3xl text-center">
+                        <h1 class="text-3xl font-bold neon-text mb-8">Your Quiz Assessment</h1>
+                        <div class="bento-box text-left overflow-y-auto max-h-[60vh]">${reportHtml}</div>
+                        <button id="start-module-btn" class="mt-8 px-8 py-3 bg-neon-cyan/90 hover:bg-neon-cyan text-black font-bold rounded-lg transition-all">Start Your First Coding Task</button>
+                    </div>`;
+                document.getElementById('start-module-btn').addEventListener('click', () => {
+                    window.location.href = './module.html';
+                });
+            };
+
+            async function showQuizAssessment() {
+                popupRoot.innerHTML = ''; 
+                renderLoading("Analyzing your results...");
+                try {
+                    const reportHtml = await apiClient.createUserReport();
+                    renderAssessment(reportHtml);
+                } catch (error) {
+                    renderError("Could not generate your assessment.", error.message);
+                }
+            }
+
+            function showCompletionPopup() {
+                const popupHTML = `
+                    <div class="popup-overlay">
+                        <div class="popup-content max-w-xs w-full">
+                            <h2 class="text-xl font-bold neon-text mb-2">Quiz Complete!</h2>
+                            <p class="text-slate-300 mb-6">Let's see how you did.</p>
+                            <button id="assess-quiz-btn" class="w-full px-6 py-2 bg-neon-cyan/80 hover:bg-neon-cyan text-black font-bold rounded-lg transition-all">See My Assessment</button>
+                        </div>
+                    </div>`;
+                popupRoot.innerHTML = popupHTML;
+                document.getElementById('assess-quiz-btn').addEventListener('click', showQuizAssessment);
+            }
+
+            async function initializeQuiz() {
+                await apiClient.resetQuiz();
+                renderQuizScreen();
+                // Hide the submit button while the first question is generated
+                const submitBtn = document.getElementById('submit-quiz-btn');
+                if(submitBtn) submitBtn.style.display = 'none';
+
+                const quizQuestionEl = document.getElementById('quiz-question');
+                typeWriter(quizQuestionEl, "Generating your first question...", 40);
+                try {
+                    const questionData = await apiClient.getQuestion();
+                    // The renderQuizQuestion function will make the button visible again
+                    renderQuizQuestion(questionData);
+                } catch (error) {
+                    renderError("Could not connect to the backend.", error.message);
+                }
+            }
+
+            async function handleSubmitAnswer() {
+                if (!selectedOptionData) return;
+                const quizQuestionEl = document.getElementById('quiz-question');
+                const quizOptionsEl = document.getElementById('quiz-options');
+                quizOptionsEl.innerHTML = '';
+                document.getElementById('submit-quiz-btn').style.display = 'none';
+                typeWriter(quizQuestionEl, "Thinking of the next question...", 40);
+                await apiClient.answerQuestion(selectedOptionData);
+                try {
+                    const nextQuestionData = await apiClient.getQuestion();
+                    if (typeof nextQuestionData === 'object' && nextQuestionData.message === 'quiz_complete') {
+                        showCompletionPopup();
+                    } else if (typeof nextQuestionData === 'string') {
+                        renderQuizQuestion(nextQuestionData);
+                    } else { throw new Error("Invalid API response."); }
+                } catch (error) {
+                    renderError("Could not fetch the next question.", error.message);
+                }
+            }
+
+            renderWelcomeScreen();
+        });
+    </script>
+</body>
 
 </html>

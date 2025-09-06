@@ -1,0 +1,170 @@
+
+<!DOCTYPE html>
+<html lang="en" class="dark">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Python Learning Module</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        background: '#000000',
+                        'bento-base': '#111111',
+                        'bento-contrast': '#222222',
+                        'neon-cyan': '#00e0e0',
+                        'neon-purple': '#a855f7',
+                        'neon-blue': '#00a0ff',
+                        'neon-green': '#00ff00',
+                    },
+                    animation: {
+                        'gradient-x': 'gradient-x 5s ease infinite',
+                    },
+                    keyframes: {
+                        'gradient-x': {
+                            '0%, 100%': { 'background-position': '0% 50%' },
+                            '50%': { 'background-position': '100% 50%' },
+                        },
+                    },
+                },
+            },
+        };
+    </script>
+
+    <style type="text/tailwindcss">
+        @layer base {
+            body { 
+                @apply bg-background text-slate-200 font-sans; 
+            }
+        }
+        .bento-box { 
+            @apply bg-bento-base border border-bento-contrast rounded-xl p-6 sm:p-8; 
+        }
+        .neon-text {
+             @apply bg-gradient-to-r from-neon-cyan via-neon-purple to-neon-blue text-transparent bg-clip-text;
+             background-size: 200%;
+             animation: gradient-x 5s ease infinite;
+        }
+        /* Custom prose styles to match the theme */
+        .prose {
+            @apply text-slate-300;
+        }
+        .prose h3 {
+            @apply text-2xl font-bold mt-8 mb-3 bg-gradient-to-r from-neon-cyan via-neon-purple to-neon-blue text-transparent bg-clip-text;
+            background-size: 200%;
+            animation: gradient-x 5s ease infinite;
+        }
+         .prose h4 {
+            @apply text-lg font-bold text-slate-200;
+        }
+        .prose p, .prose ul {
+            @apply mb-4 leading-relaxed;
+        }
+        .prose ul {
+            @apply list-disc pl-5;
+        }
+        .prose li {
+            @apply mb-2;
+        }
+        .prose code {
+            @apply text-neon-cyan bg-bento-contrast font-mono text-sm p-1 rounded-md;
+        }
+        .prose pre {
+            @apply bg-bento-contrast border border-slate-800 rounded-lg p-4 my-6 overflow-x-auto;
+        }
+        .prose pre code {
+            @apply bg-transparent p-0 text-white;
+        }
+        .prose strong {
+            @apply text-slate-100;
+        }
+        .prose a {
+            @apply text-neon-blue no-underline transition-colors hover:text-neon-cyan;
+        }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #111111; }
+        ::-webkit-scrollbar-thumb { background-color: #222222; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background-color: #a855f7; }
+        * { scrollbar-width: thin; scrollbar-color: #a855f7 #111111; }
+    </style>
+</head>
+
+<body class="w-full min-h-screen flex flex-col items-center justify-center p-4">
+
+    <main class="w-full max-w-4xl mx-auto">
+        <div id="header" class="text-center mb-8">
+            <h1 class="text-4xl sm:text-5xl font-bold neon-text">Dynamic Content Module</h1>
+            <p class="text-slate-400 mt-2">Content fetched from a remote API endpoint.</p>
+        </div>
+
+        <!-- Container for the fetched content -->
+        <div id="content-container" class="bento-box prose prose-invert max-w-none transition-opacity duration-500 opacity-0">
+            <!-- Loading State -->
+            <div class="flex items-center justify-center h-48">
+                <svg class="animate-spin -ml-1 mr-3 h-8 w-8 text-neon-purple" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <p class="text-lg text-slate-400">Fetching content...</p>
+            </div>
+        </div>
+
+        <!-- Next Button -->
+        <div id="nextButtonContainer" class="flex justify-center mt-8 hidden">
+            <button 
+                onclick="window.location.href='./task.html'"
+                class="bg-neon-purple text-white font-bold py-3 px-8 rounded-lg shadow-lg shadow-neon-purple/20 hover:bg-neon-blue hover:shadow-neon-blue/30 transition-all duration-300 transform hover:scale-105"
+            >
+                Next
+            </button>
+        </div>
+    </main>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const contentContainer = document.getElementById('content-container');
+            
+            // This is a placeholder API that returns HTML content.
+            // You can replace this URL with your actual API endpoint.
+            const apiUrl = 'https://d3b82cb2f026.ngrok-free.app/api/getModuleExplanation';
+
+            // Function to fetch and display content
+            async function loadContent() {
+                try {
+				const response = await fetch(apiUrl, {method: 'POST'});
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    const htmlContent = await response.text();
+		    console.log(htmlContent);
+
+                    // Prepend a title to the fetched content
+                    const fullContent = `<h3>Introduction to Dynamic Content</h3>${htmlContent}<h4>Sample Code Block</h4><pre><code class="language-python"># Example of a Python function\ndef greet(name):\n    print(f"Hello, {name}!")\n\ngreet("World")</code></pre><p>This demonstrates how fetched HTML, including styled headers and code blocks, is rendered within the page.</p>`;
+
+                    contentContainer.innerHTML = fullContent;
+                    document.getElementById('nextButtonContainer').classList.remove('hidden'); // Show the button
+                    
+                } catch (error) {
+                    console.error("Failed to fetch content:", error);
+                    contentContainer.innerHTML = `<p class="text-red-500 text-center">Sorry, we couldn't load the content. Please try again later.</p>`;
+                } finally {
+                    // Fade in the content
+                    contentContainer.classList.add('opacity-100');
+                }
+            }
+
+            // Load the content when the page is ready
+            loadContent();
+        });
+    </script>
+
+</body>
+
+</html>
+
